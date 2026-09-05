@@ -1,0 +1,474 @@
+// PromptStudio AI — Prisma Schema
+// Database: Neon PostgreSQL
+// ORM: Prisma
+// Generated for: Node.js 22 + Express.js backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ─────────────────────────────────────────────────────────────────
+
+enum Role {
+  user
+  admin
+}
+
+enum Plan {
+  Free
+  Pro
+  Demo
+}
+
+enum SettingType {
+  string
+  number
+  boolean
+  json
+}
+
+enum AnnouncementType {
+  info
+  warning
+  success
+  danger
+}
+
+enum NotificationType {
+  info
+  success
+  warning
+  error
+  announcement
+}
+
+enum LogLevel {
+  debug
+  info
+  warn
+  error
+  fatal
+}
+
+// ─── User & Auth ───────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(user)
+  plan         Plan      @default(Free)
+  isActive     Boolean   @default(true)
+  avatar       String?
+  bio          String?
+  lastLoginAt  DateTime?
+  loginCount   Int       @default(0)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  refreshTokens   RefreshToken[]
+  sessions        Session[]
+  promptHistories PromptHistory[]
+  favorites       FavoritePrompt[]
+  activityLogs    ActivityLog[]
+  notifications   Notification[]
+  subscription    Subscription?
+  templateVersions TemplateVersion[]
+  apiUsageLogs    ApiUsageLog[]
+
+  @@index([email])
+  @@index([role])
+  @@index([plan])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String
+  expiresAt DateTime
+  isRevoked Boolean   @default(false)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  ipAddress  String?
+  userAgent  String?
+  lastActive DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastActive])
+  @@map("sessions")
+}
+
+model Subscription {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  plan      Plan     @default(Free)
+  startsAt  DateTime @default(now())
+  expiresAt DateTime?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([plan])
+  @@map("subscriptions")
+}
+
+// ─── Prompt ────────────────────────────────────────────────────────────────
+
+model PromptHistory {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  contentType String
+  style       String
+  audience    String
+  language    String   @default("id")
+  slides      Int      @default(5)
+  output      String   @default("prompt")
+  promptText  String   @db.Text
+  captionText String?  @db.Text
+  jsonData    Json?
+  provider    String?  // gemini | groq | local
+  modelUsed   String?
+  tokensUsed  Int?
+  responseMs  Int?
+  isDummy     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  favorites FavoritePrompt[]
+  usageLogs ApiUsageLog[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([provider])
+  @@map("prompt_histories")
+}
+
+model FavoritePrompt {
+  id              String   @id @default(cuid())
+  userId          String
+  promptHistoryId String
+  createdAt       DateTime @default(now())
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  promptHistory PromptHistory @relation(fields: [promptHistoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, promptHistoryId])
+  @@index([userId])
+  @@map("favorite_prompts")
+}
+
+// ─── Templates ─────────────────────────────────────────────────────────────
+
+model PromptCategory {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  color       String?
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  templates PromptTemplate[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@index([order])
+  @@map("prompt_categories")
+}
+
+model PromptTemplate {
+  id           String    @id @default(cuid())
+  title        String
+  slug         String    @unique
+  description  String?
+  categoryId   String?
+  thumbnail    String?
+  tags         String[]
+  contentType  String
+  slides       Int       @default(5)
+  style        String
+  audience     String
+  language     String    @default("id")
+  output       String    @default("prompt")
+  globalPrompt String?   @db.Text
+  slidePrompts Json?
+  isFeatured   Boolean   @default(false)
+  isActive     Boolean   @default(true)
+  version      Int       @default(1)
+  usageCount   Int       @default(0)
+  order        Int       @default(0)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  category PromptCategory? @relation(fields: [categoryId], references: [id])
+  versions TemplateVersion[]
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([isFeatured])
+  @@index([isActive])
+  @@index([tags])
+  @@index([createdAt])
+  @@map("prompt_templates")
+}
+
+model TemplateVersion {
+  id         String   @id @default(cuid())
+  templateId String
+  version    Int
+  data       Json     // Snapshot of template data
+  note       String?
+  adminId    String
+  createdAt  DateTime @default(now())
+
+  template PromptTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  admin    User           @relation(fields: [adminId], references: [id])
+
+  @@index([templateId])
+  @@index([version])
+  @@map("template_versions")
+}
+
+model GeneratorOption {
+  id        String   @id @default(cuid())
+  type      String   // contentType, style, audience, language, output
+  label     String
+  value     String
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([isActive])
+  @@index([order])
+  @@map("generator_options")
+}
+
+// ─── API Providers & Keys ──────────────────────────────────────────────────
+
+model ApiProvider {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  defaultModel String?
+  models      String[]
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  priority    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  apiKeys   ApiKey[]
+  usageLogs ApiUsageLog[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("api_providers")
+}
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  providerId     String
+  label          String
+  // Key is stored encrypted — never returned to frontend
+  encryptedKey   String    @db.Text
+  isActive       Boolean   @default(true)
+  lastUsedAt     DateTime?
+  requestCount   Int       @default(0)
+  errorCount     Int       @default(0)
+  lastError      String?
+  lastRotatedAt  DateTime?
+  rotationIndex  Int       @default(0)
+  models         String[]
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  provider  ApiProvider   @relation(fields: [providerId], references: [id])
+  usageLogs ApiUsageLog[]
+
+  @@index([providerId])
+  @@index([isActive])
+  @@index([lastUsedAt])
+  @@map("api_keys")
+}
+
+model ApiUsageLog {
+  id              String   @id @default(cuid())
+  apiKeyId        String?
+  providerId      String?
+  userId          String?
+  promptHistoryId String?
+  requestMs       Int?
+  tokensUsed      Int?
+  success         Boolean  @default(true)
+  errorCode       String?
+  errorMessage    String?  @db.Text
+  createdAt       DateTime @default(now())
+
+  apiKey        ApiKey?        @relation(fields: [apiKeyId], references: [id])
+  provider      ApiProvider?   @relation(fields: [providerId], references: [id])
+  user          User?          @relation(fields: [userId], references: [id])
+  promptHistory PromptHistory? @relation(fields: [promptHistoryId], references: [id])
+
+  @@index([apiKeyId])
+  @@index([providerId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([success])
+  @@map("api_usage_logs")
+}
+
+// ─── Content & Announcements ───────────────────────────────────────────────
+
+model Announcement {
+  id        String           @id @default(cuid())
+  title     String
+  content   String           @db.Text
+  type      AnnouncementType @default(info)
+  isActive  Boolean          @default(true)
+  startAt   DateTime?
+  endAt     DateTime?
+  order     Int              @default(0)
+  deletedAt DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([isActive])
+  @@index([startAt])
+  @@index([endAt])
+  @@map("announcements")
+}
+
+model Banner {
+  id        String    @id @default(cuid())
+  title     String
+  imageUrl  String?
+  linkUrl   String?
+  position  String    @default("dashboard") // dashboard | landing | header
+  isActive  Boolean   @default(true)
+  startAt   DateTime?
+  endAt     DateTime?
+  order     Int       @default(0)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([isActive])
+  @@index([position])
+  @@map("banners")
+}
+
+// ─── Notifications ─────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  title     String
+  body      String           @db.Text
+  type      NotificationType @default(info)
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─── Settings & Logs ──────────────────────────────────────────────────────
+
+model Settings {
+  id          String      @id @default(cuid())
+  key         String      @unique
+  value       String      @db.Text
+  type        SettingType @default(string)
+  group       String      @default("general")
+  label       String?
+  description String?
+  isPublic    Boolean     @default(false) // safe to send to frontend
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([key])
+  @@index([group])
+  @@map("settings")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String   // LOGIN, LOGOUT, CHANGE_PASSWORD, ADD_API_KEY, etc.
+  entity    String?  // user, template, apiKey, etc.
+  entityId  String?
+  meta      Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  level     LogLevel
+  message   String   @db.Text
+  context   Json?
+  stack     String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([createdAt])
+  @@map("system_logs")
+}
